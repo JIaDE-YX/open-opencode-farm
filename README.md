@@ -1,95 +1,125 @@
 # OpenCode Farm
 
-> ⚠️ **声明（免责）**：本仓库为**个人技术研究与学习用途**的开源项目。使用本项目访问第三方服务（如 OpenCode zen 免费模型）可能违反该服务的服务条款与使用政策，存在**账号风控 / 封号风险**，请仅在合规、低流量、自用场景下使用，并自行承担全部后果。本项目不附带任何担保。详见 [docs/DISCLAIMER.md](docs/DISCLAIMER.md)。
+> **免责声明**：本仓库为**个人技术研究与学习用途**的开源项目。使用本项目访问第三方服务（如 OpenCode zen 免费模型）可能违反该服务的服务条款，存在**账号风控 / 封号风险**，请仅在合规、低流量、自用场景下使用，自行承担全部后果。详见 [docs/DISCLAIMER.md](docs/DISCLAIMER.md)。
 
-OpenCode Farm 是一套在 Ubuntu 上原生运行的多账号 OpenCode 免费模型接入系统，对外提供统一的 OpenAI/Anthropic 兼容 API。
+## 这是什么？
 
-它由三个逻辑层组成，但对外不需要区分它们：
+**OpenCode Farm** 是一套自托管套件：它把"OpenCode 的免费模型额度"整合成一个**标准的本地 API 网关**（OpenAI / Anthropic 兼容），让你可以用任何现成的 AI 客户端直接调用这些免费模型，就像调用 OpenAI API 一样。
 
-- **Gateway**：统一 API 网关，负责 key 池、模型路由、请求转换和限流处理
-- **Egress**：统一出口代理池，负责多 IP 隔离、住宅节点绑定和故障迁移
-- **Client**：本地客户端接入层，提供模型配置和密钥环境
+架构示意：
 
-## 快速开始
+  你的客户端 --(OpenAI 兼容, :8080/v1)--> Farm 网关(Go) --(HTTP代理, :2260)--> Egress 出口池 --> OpenCode zen 免费模型
 
-### 1. 准备数据目录
+它由三个逻辑层组成（对外无需区分）：
 
-数据目录默认放在仓库同级目录：
+| 组件 | 作用 |
+|---|---|
+| **Gateway**（Go，:8080） | 统一 API 网关：key 池管理、模型路由、请求/流式转换、限流重试、代理绑定 |
+| **Egress**（Resin，:2260） | 出口代理池：多 IP 隔离、住宅/机场线路绑定、故障迁移 |
+| **Client** | 本地客户端接入层的配置模板（模型清单、密钥环境） |
 
-```text
-/path/to/opencode-farm-data/
-├── gateway/          # 网关真实配置（config.json）
-├── proxy/            # 代理池 token 和运行时数据（data/ 为实际运行目录）
-└── client/           # 客户端配置（settings.yaml / .credentials.yaml）
-```
+## 有什么用？（解决什么问题）
 
-可复制 `.env.example` 为 `.env` 后修改；或直接设置环境变量：
+OpenCode 的免费模型有这些限制，**单账号 + 单出口 IP 很快就被打满**：
 
-```bash
-export OPENCODE_FARM_DATA_DIR=/path/to/opencode-farm-data
-```
+1. **按出口 IP 计独立日额度**（约 300~766 次/天/IP，UTC 午夜重置，新 IP 有宽限期）；
+2. **客户端指纹门控**：非官方客户端调用会被 403 / 极速限流；
+3. **账号级限制**：每个工作区 5 小时免费额度（429），新账号需先 Opt-in（403）。
 
-### 2. 检查环境
+**opencode-farm 把这些限制"摊平"成一个大额度池**：
 
-```bash
-bin/farm doctor
-```
+- 多账号 key 池 x 多出口 IP = **多个独立额度池叠加**，总量大幅提升；
+- 自动注入官方 User-Agent / x-opencode-session 等请求头 = **绕过客户端指纹门控**；
+- 1:1 Key-IP 粘性绑定 = **模拟不同国家的真实用户，避免关联风控**。
 
-需要：
+**对使用者来说，效果是**：把一批免费模型（deepseek-v4-flash-free、hy3-free、laguna-s-2.1-free、mimo-v2.5-free、nemotron-3-ultra-free、nemotron-3.5-lightning-free）通过一个本地地址 http://127.0.0.1:8080/v1 暴露出来，**任何支持 OpenAI API 的客户端**（Claude Code、Cline、Continue、ChatGPT-Next-Web、OpenWebUI、自写脚本、各种 SDK）填上这个地址就能用。
 
-- Go 1.24+（编译 gateway）
-- Node.js（运行维护脚本）
-- curl（健康检查）
+## 怎么用？
 
-### 3. 安装原生依赖
+### 第 1 步：准备数据目录
 
-```bash
-bin/farm install-egress
-make install
-```
+数据目录放在仓库同级（真实 key/配置不入库）：
 
-### 4. 启动服务
+    /path/to/opencode-farm-data/
+    ├── gateway/          # 网关真实配置（config.json）
+    ├── proxy/            # egress token 和运行时数据（data/ 为实际运行目录）
+    └── client/           # 客户端配置模板（settings.yaml / .credentials.yaml）
 
-```bash
-bin/farm egress     # 出口代理池，默认 127.0.0.1:2260
-bin/farm gateway    # 统一 API 网关，默认 127.0.0.1:8080
-```
+复制 .env.example 为 .env 或直接设环境变量：
 
-也可以使用：
+    export OPENCODE_FARM_DATA_DIR=/path/to/opencode-farm-data
 
-```bash
-make egress
-make gateway
-```
+### 第 2 步：检查环境并安装依赖
 
-### 5. 验证
+    bin/farm doctor          # 检查 Go/Node/curl 与数据目录
+    bin/farm install-egress  # 安装 egress 原生二进制
+    make install
 
-```bash
-bin/farm status
-curl http://127.0.0.1:8080/healthz
-```
+### 第 3 步：准备好你的凭证
+
+在数据目录的 gateway/config.json 中配置（示例见 services/gateway/config.example.json）：
+
+- zen_keys / go_keys：你的 OpenCode 官方 API key 列表（可多个）；
+- server_keys：**本地调用 key**（自己生成一串字符串，只在本机有效，不会发给上游）；
+- proxies：出口代理列表（direct、http://、socks5://，或指向本机 egress 的账号）；
+- upstream：上游地址，默认 https://opencode.ai/zen（免费池）与 https://opencode.ai/zen/go。
+
+### 第 4 步：启动
+
+    bin/farm egress     # 出口代理池，127.0.0.1:2260
+    bin/farm gateway    # API 网关，127.0.0.1:8080
+
+（可注册为 systemd 服务开机自启，模板见 deploy/。）
+
+### 第 5 步：在你的客户端里接入
+
+任何 OpenAI 兼容客户端，填：
+
+    Base URL : http://127.0.0.1:8080/v1
+    API Key  : <server_keys 里你设置的本地 key>
+    模型     : deepseek-v4-flash-free 等（/v1/models 实时返回）
+
+命令行快速验证（curl）：
+
+    # 1. 健康检查（无需 key）
+    curl http://127.0.0.1:8080/healthz
+    # {"status":"ok","ready":true,"proxies":{"healthy":N}}
+
+    # 2. 模型列表
+    curl -H "Authorization: Bearer <local-key>" http://127.0.0.1:8080/v1/models
+
+    # 3. 一句话对话
+    curl -X POST http://127.0.0.1:8080/v1/chat/completions \
+      -H "Authorization: Bearer <local-key>" -H "Content-Type: application/json" \
+      -d '{"model":"deepseek-v4-flash-free","messages":[{"role":"user","content":"hi"}]}'
+
+## 运维速查
+
+    bin/farm status                        # 网关 + egress 健康总览
+    systemctl status opencode-farm-gateway # systemd 方式（若已注册）
+    journalctl -u opencode-farm-gateway -f # 网关日志
+
+| 现象 | 含义 | 处置 |
+|---|---|---|
+| 403 RegionError: requires explicit opt in | 该 key 的工作区未 Opt-in | 到 opencode 工作区页面勾选一次 |
+| 429 GoUsageLimitError: 5-hour usage limit reached | 5 小时免费额度打满 | 等倒计时或加 key/换账号 |
+| 429 Throttling.BurstRate | IP+key 关联风控 | 确认走 Egress 独立出口且 1:1 绑定 |
+| 502 all upstream attempts failed | 池内所有 key 不可用 | 逐个检查 key 状态 |
+| healthz 报 no_healthy_proxies | 出口池空 | 看 egress 日志是否 Loaded 0 subscriptions，检查订阅/线路 |
 
 ## 目录结构
 
-```text
-opencode-farm/
-├── bin/
-│   └── farm                 # 统一管理入口
-├── services/
-│   ├── gateway/             # 网关源码
-│   ├── egress/              # 出口代理池（原生二进制 + 可选容器参考）
-│   └── client/              # 客户端接入层配置模板
-├── tools/
-│   ├── gateway/             # 网关维护工具
-│   ├── egress/              # 出口代理池维护工具
-│   ├── network/             # 外部线路/住宅网络维护工具
-│   └── client/              # 客户端测试工具
-├── docs/                    # 架构、玩法与排障文档
-└── Makefile                 # 常用命令入口
-```
+    opencode-farm/
+    ├── bin/farm                # 统一管理入口
+    ├── services/
+    │   ├── gateway/            # 网关源码（Go，可独立编译）
+    │   ├── egress/             # 出口代理池工具与维护脚本
+    │   └── client/             # 客户端接入配置模板
+    ├── tools/                  # 网关/egress/网络维护工具
+    ├── deploy/                 # systemd 服务模板 + 部署手册
+    └── docs/                   # 玩法说明、住宅研究、免责声明
 
-## 说明
+## 致谢与说明
 
-- 真实密钥、运行时数据库和账号档案已移出 Git，存放在 `opencode-farm-data/`
-- 默认部署方式为 Ubuntu 原生进程，不再依赖 Docker
-- 如需容器方式部署，`services/gateway/compose.yaml` 和 `deploy/legacy/container-egress.example.yml` 仍保留作为参考
+- 感谢 LINUX DO 社区的技术思路支持。
+- 本项目为自用而建，按现状提供（AS-IS）；请遵守目标服务条款与当地法律，勿大规模滥用。
