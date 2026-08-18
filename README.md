@@ -4,22 +4,17 @@
 ![Go](https://img.shields.io/badge/Language-Go-00ADD8)
 ![Ubuntu](https://img.shields.io/badge/Platform-Ubuntu-E95420)
 
-一个把 OpenCode 免费模型打包成本地 API 的小工具。装好后你的电脑上就有个 `http://127.0.0.1:8080/v1`，任何支持 OpenAI 接口的客户端（Claude Code、Cline、OpenWebUI、脚本都行）填这个地址就能直接调免费模型，不用管背后的多账号、多线路这些事。
+**说白了，这玩意儿就是薅 OpenCode 免费模型额度用的。**
 
-> 仅供个人技术学习与低流量自用。本项目与第三方服务的条款风险请自行评估，详见 [DISCLAIMER](docs/DISCLAIMER.md)。
+官方的免费额度是**按账号和出口 IP 分开算**的：一个号、一个 IP，一天也就几百次调用。农场干的事就是——攒一堆账号的 key、挂一堆出口线路，把每天的免费额度凑到一起，然后打包成一个标准 OpenAI 接口（`http://127.0.0.1:8080/v1`）。
 
-## 目录
+装完后你手里任何支持 OpenAI 接口的客户端（Claude Code、Cline、OpenWebUI、脚本都行）填这个地址就能调免费模型。号开多少、线路挂多少，自己看着办，风险自负。
 
-- [快速开始](#快速开始)
-- [配置](#配置)
-- [验证](#验证)
-- [常见问题](#常见问题)
-- [目录结构](#目录结构)
-- [License](#license)
+> 仅供个人技术学习与低流量自用。第三方服务条款风险和账号风险自行评估，详见 [DISCLAIMER](docs/DISCLAIMER.md)。
 
 ## 快速开始
 
-数据目录放仓库同级即可：
+数据目录放仓库同级：
 
 ```bash
 cp .env.example .env                 # 按需改
@@ -30,7 +25,7 @@ bin/farm egress                      # 起代理池 (127.0.0.1:2260)
 bin/farm gateway                     # 起网关   (127.0.0.1:8080)
 ```
 
-之后三个 curl 验证：
+三个 curl 验证：
 
 ```bash
 curl http://127.0.0.1:8080/healthz                     # 健康：ready:true probes:healthy:N
@@ -44,25 +39,18 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
 
 ## 配置
 
-真实配置放在 `gateway/config.json`（不入库，示例见 `services/gateway/config.example.json`）：
+真实配置放 `gateway/config.json`（不入库，示例见 `services/gateway/config.example.json`）：
 
 - `zen_keys` / `go_keys`：你的官方 key，可多个，自动轮换
-- `server_keys`：本地调用 key，自己随便生成一串，只本机有效
+- `server_keys`：本地调用 key，自己随便生成，只本机有效
 - `proxies`：出口代理，`direct` 或 `socks5://...`，或指向本机 egress 的账号
 - `upstream`：默认 `https://opencode.ai/zen`（免费池）
-
-## 验证
-
-```bash
-bin/farm status                        # 双服务健康总览
-curl http://127.0.0.1:8080/healthz     # 期望 ready:true
-```
 
 ## 常见问题
 
 | 报错 | 意思 | 怎么办 |
 |---|---|---|
-| 403 requires explicit opt in | 该 key 的工作区还没开通 Opt-in | 去官方工作区页面勾一次 |
+| 403 requires explicit opt in | 该 key 的工作区没开通 Opt-in | 去官方工作区页面勾一次 |
 | 429 5-hour usage limit reached | 这个账号 5 小时额度用完 | 等会儿，或加 key |
 | 429 Throttling.BurstRate | 风控了 | 确认走独立出口，别共用 IP |
 | 502 all upstream attempts failed | key 全挂了 | 逐个检查 key |
