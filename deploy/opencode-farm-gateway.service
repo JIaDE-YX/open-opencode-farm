@@ -1,0 +1,26 @@
+[Unit]
+Description=OpenCode Farm Gateway
+After=network-online.target opencode-farm-egress.service
+Wants=network-online.target
+# Gateway cannot be useful without the egress proxy pool: pull it up first and
+# wait for it to listen on 127.0.0.1:2260 (ExecStartPre) before starting.
+Requires=opencode-farm-egress.service
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=<REPO_ROOT>
+Environment=OPENCODE_FARM_DATA_DIR=<DATA_DIR>
+Environment=HOME=<HOME_DIR>
+Environment=PATH=<GO_BIN>:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/2260) >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=<REPO_ROOT>/bin/farm gateway
+Restart=always
+RestartSec=3
+# Resource guardrails (tuned 2026-08-19, low-traffic home deployment)
+MemoryMax=96M
+CPUWeight=80
+IOWeight=80
+
+[Install]
+WantedBy=multi-user.target

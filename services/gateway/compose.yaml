@@ -1,0 +1,28 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gateway:local
+    restart: unless-stopped
+    environment:
+      CONFIG_PATH: /app/config.json
+      LISTEN_ADDRESS: 0.0.0.0:8080
+    ports:
+      - "${OPENCODE_FARM_PORT:-8080}:8080"
+    volumes:
+      - .:/app
+      - gateway-state:/var/lib/gateway
+      - go-build-cache:/root/.cache/go-build
+      - go-module-cache:/go/pkg/mod
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  gateway-state:
+  go-build-cache:
+  go-module-cache:

@@ -1,0 +1,18 @@
+# Optional container deployment (kept for reference).
+# The default deployment mode is native Ubuntu: use tools/egress/* scripts or bin/farm-egress.
+services:
+  egress:
+    image: ghcr.io/resinat/resin:latest
+    container_name: opencode-farm-egress
+    restart: unless-stopped
+    environment:
+      RESIN_ADMIN_TOKEN: "${OPENCODE_FARM_PROXY_ADMIN_TOKEN:?set in environment}"
+      RESIN_PROXY_TOKEN: "${OPENCODE_FARM_PROXY_TOKEN:?set in environment}"
+      RESIN_LISTEN_ADDRESS: 0.0.0.0
+      RESIN_PORT: "${OPENCODE_FARM_PROXY_PORT:-2260}"
+    ports:
+      - "${OPENCODE_FARM_PROXY_PORT:-2260}:2260"
+    volumes:
+      - ../opencode-farm-data/proxy/cache:/var/cache/egress
+      - ../opencode-farm-data/proxy/state:/var/lib/egress
+      - ../opencode-farm-data/proxy/log:/var/log/egress

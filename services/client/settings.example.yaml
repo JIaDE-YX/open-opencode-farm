@@ -1,0 +1,67 @@
+llm-pi-ai:
+  providers:
+    opencode-farm:
+      apiKeyEnv: OPENCODE_LOCAL_API_KEY
+      api: openai-completions
+      baseURL: http://127.0.0.1:8080/v1
+      models:
+        - id: deepseek-v4-flash
+          contextWindow: 1000000
+          maxTokens: 384000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: deepseek-v4-pro
+          contextWindow: 1000000
+          maxTokens: 384000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: deepseek-v4-flash-free
+          contextWindow: 200000
+          maxTokens: 128000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: mimo-v2.5-free
+          contextWindow: 200000
+          maxTokens: 32000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: nemotron-3-ultra-free
+          contextWindow: 1000000
+          maxTokens: 128000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: nemotron-3.5-lightning-free
+          contextWindow: 1000000
+          maxTokens: 128000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: hy3-free
+          contextWindow: 256000
+          maxTokens: 128000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+        - id: laguna-s-2.1-free
+          contextWindow: 1000000
+          maxTokens: 128000
+          reasoningEfforts:
+            off: ""
+            high: "5"
+            max: "7"
+agent-default-model:
+  provider: opencode-farm
+  model: deepseek-v4-flash-free
+  reasoningEffort: high

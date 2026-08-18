@@ -1,0 +1,32 @@
+# Runtime / private data (kept outside the repository)
+/data/
+/runtime/
+/private/
+/opencode-farm-data/
+*.db
+*.db-shm
+*.db-wal
+*.mmdb
+*.log
+.credentials.yaml
+.tokens.txt
+
+# Local configuration with real secrets
+config.json
+config.json.bak
+config.json.bak-*
+
+# Build artifacts
+bin/gateway
+/bin/*
+!/bin/farm
+services/egress/bin/
+services/gateway/gateway
+*.exe
+*.out
+
+# Dependencies
+**/node_modules/
+
+# Local environment
+.env

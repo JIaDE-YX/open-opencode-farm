@@ -1,0 +1,11 @@
+# Local configuration with real secrets
+config.json
+config.json.bak
+config.json.bak-*
+
+# Build artifacts
+gateway
+gateway.exe
+*.log
+.tmp/
+.gocache/

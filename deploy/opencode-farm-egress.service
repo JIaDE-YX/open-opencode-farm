@@ -1,0 +1,28 @@
+[Unit]
+Description=OpenCode Farm Egress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=<REPO_ROOT>
+Environment=OPENCODE_FARM_DATA_DIR=<DATA_DIR>
+# CRITICAL: the Resin binary defaults to /var/lib/resin, /var/cache/resin,
+# /var/log/resin when these are unset, silently creating EMPTY databases.
+# Point them at the real runtime data under the farm data dir (proxy/data/).
+Environment=RESIN_STATE_DIR=<DATA_DIR>/proxy/data/state
+Environment=RESIN_CACHE_DIR=<DATA_DIR>/proxy/data/cache
+Environment=RESIN_LOG_DIR=<DATA_DIR>/proxy/data/log
+Environment=HOME=<HOME_DIR>
+Environment=PATH=<GO_BIN>:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=<REPO_ROOT>/bin/farm egress
+Restart=always
+RestartSec=3
+# Resource guardrails: egress is a background proxy pool - deprioritise CPU/IO
+MemoryMax=128M
+CPUWeight=20
+IOWeight=40
+
+[Install]
+WantedBy=multi-user.target

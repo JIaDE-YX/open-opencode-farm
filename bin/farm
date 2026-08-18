@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FARM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$FARM_ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$FARM_ROOT/.env"
+  set +a
+fi
+FARM_DATA_DIR="${OPENCODE_FARM_DATA_DIR:-$(cd "$FARM_ROOT/.." && pwd)/opencode-farm-data}"
+GATEWAY_PORT="${OPENCODE_FARM_GATEWAY_PORT:-8080}"
+EGRESS_PORT="${OPENCODE_FARM_EGRESS_PORT:-2260}"
+GATEWAY_BIN="${OPENCODE_FARM_GATEWAY_BIN:-$FARM_ROOT/bin/gateway}"
+EGRESS_BIN="${OPENCODE_FARM_EGRESS_BIN:-$FARM_ROOT/services/egress/bin/egress}"
+
+log() { printf '\033[36m[farm]\033[0m %s\n' "$*"; }
+err() { printf '\033[31m[farm] error:\033[0m %s\n' "$*" >&2; }
+
+require_data_dir() {
+  if [[ ! -d "$FARM_DATA_DIR" ]]; then
+    err "data directory not found: $FARM_DATA_DIR"
+    err "set OPENCODE_FARM_DATA_DIR or keep the data dir next to the repository."
+    exit 1
+  fi
+}
+
+load_proxy_tokens() {
+  local token_file="$FARM_DATA_DIR/proxy/.tokens.txt"
+  if [[ -f "$token_file" ]]; then
+    RESIN_ADMIN_TOKEN="$(sed -n 's/^RESIN_ADMIN_TOKEN=//p' "$token_file" | head -1)"
+    RESIN_PROXY_TOKEN="$(sed -n 's/^RESIN_PROXY_TOKEN=//p' "$token_file" | head -1)"
+  fi
+  RESIN_ADMIN_TOKEN="${OPENCODE_FARM_PROXY_ADMIN_TOKEN:-${RESIN_ADMIN_TOKEN:-}}"
+  RESIN_PROXY_TOKEN="${OPENCODE_FARM_PROXY_TOKEN:-${RESIN_PROXY_TOKEN:-}}"
+}
+
+cmd_doctor() {
+  log "farm root: $FARM_ROOT"
+  log "farm data: $FARM_DATA_DIR"
+  command -v go >/dev/null 2>&1 && log "go: $(go version)" || err "go is not installed (required for gateway)"
+  command -v node >/dev/null 2>&1 && log "node: $(node --version)" || err "node is not installed (required for tools)"
+  command -v curl >/dev/null 2>&1 && log "curl: ok" || err "curl is not installed"
+  if [[ -x "$EGRESS_BIN" ]]; then log "egress binary: ok"; else err "egress binary not found: $EGRESS_BIN (run: bin/farm install-egress)"; fi
+  if [[ -d "$FARM_DATA_DIR" ]]; then
+    log "data directory: ok"
+    for f in gateway/config.json client/settings.yaml proxy/.tokens.txt; do
+      [[ -f "$FARM_DATA_DIR/$f" ]] && log "  found $f" || err "  missing $f"
+    done
+  else
+    err "data directory missing"
+  fi
+}
+
+cmd_install_egress() {
+  mkdir -p "$(dirname "$EGRESS_BIN")"
+  if [[ ! -x "$EGRESS_BIN" ]]; then
+    log "downloading native egress binary (linux-amd64)..."
+    local url="https://github.com/Resinat/Resin/releases/download/v1.2.0/resin-linux-amd64.tar.gz"
+    local tmp
+    tmp="$(mktemp -d)"
+    curl -fsSL "$url" -o "$tmp/resin.tar.gz"
+    tar -xzf "$tmp/resin.tar.gz" -C "$tmp"
+    chmod +x "$tmp/resin"
+    mv "$tmp/resin" "$EGRESS_BIN"
+    rm -rf "$tmp"
+    log "installed egress binary: $EGRESS_BIN"
+  else
+    log "egress binary already exists: $EGRESS_BIN"
+  fi
+}
+
+cmd_build() {
+  command -v go >/dev/null 2>&1 || { err "go is not installed"; exit 1; }
+  log "building gateway..."
+  (cd "$FARM_ROOT/services/gateway" && go build -trimpath -o "$GATEWAY_BIN" .)
+  log "gateway binary: $GATEWAY_BIN"
+}
+
+cmd_gateway() {
+  require_data_dir
+  cmd_build
+  local cfg="$FARM_DATA_DIR/gateway/config.json"
+  [[ -f "$cfg" ]] || { err "gateway config not found: $cfg"; exit 1; }
+  exec "$GATEWAY_BIN" -config "$cfg" -listen "127.0.0.1:$GATEWAY_PORT"
+}
+
+cmd_egress() {
+  require_data_dir
+  [[ -x "$EGRESS_BIN" ]] || { err "egress binary not found: $EGRESS_BIN (run: bin/farm install-egress)"; exit 1; }
+  load_proxy_tokens
+  [[ -n "${RESIN_ADMIN_TOKEN:-}" ]] || { err "RESIN_ADMIN_TOKEN is empty"; exit 1; }
+  [[ -n "${RESIN_PROXY_TOKEN:-}" ]] || { err "RESIN_PROXY_TOKEN is empty"; exit 1; }
+  local proxy_data="$FARM_DATA_DIR/proxy/data"
+  if [[ -d "$proxy_data/state" ]]; then
+    local cache_dir="$proxy_data/cache"
+    local state_dir="$proxy_data/state"
+    local log_dir="$proxy_data/log"
+  else
+    local cache_dir="$FARM_DATA_DIR/proxy/cache"
+    local state_dir="$FARM_DATA_DIR/proxy/state"
+    local log_dir="$FARM_DATA_DIR/proxy/log"
+  fi
+  mkdir -p "$cache_dir" "$state_dir" "$log_dir"
+  log "starting egress on 127.0.0.1:$EGRESS_PORT"
+  export RESIN_ADMIN_TOKEN RESIN_PROXY_TOKEN
+  export RESIN_LISTEN_ADDRESS="${OPENCODE_FARM_EGRESS_BIND:-127.0.0.1}"
+  export RESIN_PORT="$EGRESS_PORT"
+  export RESIN_CACHE_DIR="$cache_dir"
+  export RESIN_STATE_DIR="$state_dir"
+  export RESIN_LOG_DIR="$log_dir"
+  exec "$EGRESS_BIN"
+}
+
+cmd_status() {
+  log "gateway health:"
+  curl -fsS "http://127.0.0.1:$GATEWAY_PORT/healthz" || echo "gateway not reachable on :$GATEWAY_PORT"
+  log "egress health:"
+  curl -fsS "http://127.0.0.1:$EGRESS_PORT/api/v1/health" || echo "egress not reachable on :$EGRESS_PORT"
+}
+
+case "${1:-}" in
+  doctor) cmd_doctor ;;
+  install-egress) cmd_install_egress ;;
+  build) cmd_build ;;
+  gateway) shift; cmd_gateway "$@" ;;
+  egress) shift; cmd_egress "$@" ;;
+  status) cmd_status ;;
+  *) cat <<'USAGE'
+OpenCode Farm unified CLI
+
+Usage:
+  bin/farm doctor            Check dependencies and data layout
+  bin/farm install-egress    Download the native egress proxy binary
+  bin/farm build             Build the gateway binary
+  bin/farm gateway           Run the gateway service natively
+  bin/farm egress            Run the egress proxy service natively
+  bin/farm status            Show service health
+USAGE
+    ;;
+esac
