@@ -12,7 +12,7 @@
 
 下面的每一条都是照着 OpenCode 官方的免费模型接入规则做的：
 
-1. **额度模型（OpenCode 官方规则）**：免费额度按「key（账号）× 出口公网 IP」两个维度分别计算——每个 IP 每天约 300~766 次、UTC 午夜重置、新 IP 有高配额宽限期；每个账号（工作区）另有 5 小时冷却；新账号需先完成 Opt-in 才能调用。
+1. **额度模型（OpenCode 官方规则）**：免费额度按「key（账号）× 出口公网 IP」两个维度分别计算——每个 IP 每天约 300~766 次、UTC 午夜重置、新 IP 有高配额宽限期；每个账号（工作区）另有 5 小时冷却；（免费模型新账号即可直接调用，无需 Opt-in；仅部分付费/托管模型需要额外 Opt-in）。
 2. **多 key 池**：`zen_keys` / `go_keys` 对应 OpenCode 的 Zen 池与 Zen Go 池，分组管理多个账号 key，请求自动均衡、失败切换。
 3. **多出口代理池**：egress 托管机场/住宅线路，虚拟出多个隔离账号（`Default.user_N`、`residential.user_N`），让每个出口 IP 各有一个独立额度池。
 4. **1:1 Key-IP 粘性绑定**：同一 key 固定同一个出口 IP，规避 OpenCode 的关联风控（`Throttling.BurstRate`）。
@@ -67,7 +67,7 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
 
 | 报错 | 含义 | 处理 |
 |---|---|---|
-| 403 requires explicit opt in | 该 key 的工作区未开通 Opt-in | 官方工作区页面勾选一次 |
+| 403 requires explicit opt in | 仅部分付费/托管模型需要；免费模型不受影响 | 若需使用对应付费模型，到官方工作区页面勾选一次 |
 | 429 5-hour usage limit reached | 账号 5 小时免费额度打满 | 等待冷却或增加 key |
 | 429 Throttling.BurstRate | IP+key 关联风控 | 确认走独立出口，勿共用 IP |
 | 502 all upstream attempts failed | key 池全部不可用 | 逐个验证 key 状态 |
